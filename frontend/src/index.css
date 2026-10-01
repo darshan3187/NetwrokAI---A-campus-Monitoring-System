@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+:root {
+  /* Vercel Geist Light Tokens from DESIGN.md */
+  --color-app-bg: #fafafa;
+  --color-sidebar-bg: #ffffff;
+  --color-card-surface: #ffffff;
+  --color-elevated-surface: #f2f2f2;
+  --color-surface-hover: #f5f5f5;
+  --color-text-primary: #171717;
+  --color-text-secondary: #4d4d4d;
+  --color-text-muted: #8f8f8f;
+  --color-text-faint: #a1a1a1;
+  --color-border-subtle: #ebebeb;
+  --color-border-hover: #d4d4d4;
+  --color-accent-primary: #0070f3;
+  --color-accent-primary-hover: #0761d1;
+  --color-accent-primary-soft: #d3e5ff;
+  --color-accent-success: #0070f3;
+  --color-accent-success-real: #00a67e;
+  --color-accent-warning: #f5a623;
+  --color-accent-warning-soft: #ffefcf;
+  --color-accent-error: #ee0000;
+  --color-accent-error-deep: #c50000;
+  --color-accent-cyan: #50e3c2;
+  --color-accent-violet: #7928ca;
+  --color-accent-pink: #ff0080;
+
+  --shadow-whisper: 0 1px 1px rgba(0, 0, 0, 0.04);
+  --shadow-floating: 0 2px 4px rgba(0, 0, 0, 0.06), 0 8px 16px -4px rgba(0, 0, 0, 0.08);
+}
+
+.dark {
+  /* Vercel Geist Dark Tokens */
+  --color-app-bg: #000000;
+  --color-sidebar-bg: #0a0a0a;
+  --color-card-surface: #0a0a0a;
+  --color-elevated-surface: #171717;
+  --color-surface-hover: #1f1f1f;
+  --color-text-primary: #ededed;
+  --color-text-secondary: #a1a1a1;
+  --color-text-muted: #707070;
+  --color-text-faint: #525252;
+  --color-border-subtle: #262626;
+  --color-border-hover: #333333;
+  --color-accent-primary: #0070f3;
+  --color-accent-primary-hover: #3291ff;
+  --color-accent-primary-soft: rgba(0, 112, 243, 0.15);
+  --color-accent-success: #3291ff;
+  --color-accent-success-real: #22c55e;
+  --color-accent-warning: #f5a623;
+  --color-accent-warning-soft: rgba(245, 166, 35, 0.15);
+  --color-accent-error: #f87171;
+  --color-accent-error-deep: #ee0000;
+  --color-accent-cyan: #50e3c2;
+  --color-accent-violet: #7928ca;
+  --color-accent-pink: #ff0080;
+
+  --shadow-whisper: 0 1px 1px rgba(0, 0, 0, 0.4);
+  --shadow-floating: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 16px -4px rgba(0, 0, 0, 0.6);
+}
+
+@theme {
+  --color-app-bg: var(--color-app-bg);
+  --color-sidebar-bg: var(--color-sidebar-bg);
+  --color-card-surface: var(--color-card-surface);
+  --color-elevated-surface: var(--color-elevated-surface);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-faint: var(--color-text-faint);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-border-hover: var(--color-border-hover);
+  --color-accent-primary: var(--color-accent-primary);
+  --color-accent-primary-hover: var(--color-accent-primary-hover);
+  --color-accent-success: var(--color-accent-success);
+  --color-accent-warning: var(--color-accent-warning);
+  --color-accent-error: var(--color-accent-error);
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background-color: var(--color-app-bg);
+    color: var(--color-text-primary);
+    font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    overflow-x: hidden;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  #root {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .font-mono, code, pre {
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Vercel Mesh Gradient utility */
+.vercel-mesh-gradient {
+  background: radial-gradient(circle at 20% 20%, rgba(80, 227, 194, 0.12) 0%, transparent 40%),
+              radial-gradient(circle at 80% 20%, rgba(121, 40, 202, 0.10) 0%, transparent 40%),
+              radial-gradient(circle at 50% 80%, rgba(0, 112, 243, 0.08) 0%, transparent 50%);
+}
+
+.dark .vercel-mesh-gradient {
+  background: radial-gradient(circle at 20% 20%, rgba(80, 227, 194, 0.08) 0%, transparent 40%),
+              radial-gradient(circle at 80% 20%, rgba(121, 40, 202, 0.08) 0%, transparent 40%),
+              radial-gradient(circle at 50% 80%, rgba(0, 112, 243, 0.06) 0%, transparent 50%);
+}
+
+/* Hairline scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-hover);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
