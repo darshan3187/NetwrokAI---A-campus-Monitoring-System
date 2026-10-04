@@ -7,15 +7,26 @@ and a WebSocket endpoint for real-time traffic metric streaming.
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import json
 import logging
-from typing import Optional
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+import os
+import shutil
+import uuid
+from pathlib import Path
+from typing import List, Optional
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import get_db, init_db
-from app.models import AnomalyEventModel, DeviceModel, NetworkMetricModel
+from app.database import SessionLocal, get_db, init_db
+from app.models import (
+    AnomalyEventModel,
+    DeviceModel,
+    NetworkMetricModel,
+    ResearchDatasetModel,
+    ResearchExperimentModel,
+)
 from app.schemas import (
     AnomalyEventResponse,
     AnomalyListResponse,
@@ -55,6 +66,16 @@ from app.schemas import (
     TopologyAlertListResponse,
     TopologyAlertResponse,
     TopologyAlertSummaryResponse,
+    ResearchDatasetResponse,
+    ResearchDatasetListResponse,
+    ResearchDatasetDetailResponse,
+    ResearchExperimentRunRequest,
+    ResearchExperimentResponse,
+    ResearchExperimentListResponse,
+    ResearchExperimentProgressResponse,
+    PaperReferenceMetricResponse,
+    ComparisonSummaryResponse,
+    ConfusionMatrixResponse,
 )
 from app.services.alerting import alert_service
 from app.services.devices import device_service
@@ -62,6 +83,13 @@ from app.services.monitoring import monitoring_service
 from app.services.polling import polling_service
 from app.services.simulation import simulation_service
 from app.services.topology import topology_service
+from app.services.research.dataset_service import (
+    dataset_service,
+    PRIMARY_FEATURES,
+    DatasetValidationError,
+)
+from app.services.research.experiment_runner import experiment_runner
+from app.services.research.reference_data import PUBLISHED_PAPER_RESULTS, PAPER_METADATA
 
 
 # Logging setup
@@ -77,6 +105,15 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager handling database initialization and monitoring loop lifecycle."""
     logger.info("Starting up Smart Network Monitoring AI service...")
     init_db()
+
+    # Pre-seed default benchmark sample dataset if not present
+    try:
+        sample_db = SessionLocal()
+        dataset_service.ensure_default_sample_dataset(sample_db)
+        sample_db.close()
+    except Exception as exc:
+        logger.warning("Could not auto-initialize sample dataset: %s", exc)
+
     # Connect remote device polling service broadcast to monitoring_service websocket broadcaster
     polling_service.broadcast_callback = monitoring_service.broadcast_event
 
@@ -97,6 +134,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Smart Network Monitoring AI service...")
     await polling_service.stop()
     await monitoring_service.stop()
+
 
 
 app = FastAPI(
@@ -1186,3 +1224,465 @@ async def websocket_metrics_endpoint(websocket: WebSocket) -> None:
     except Exception as exc:
         logger.warning("WebSocket connection exception: %s", exc)
         monitoring_service.disconnect_websocket(websocket)
+
+
+# ============================================================================
+# Research Paper & Experiment API Endpoints (/api/v1/research)
+# ============================================================================
+
+
+@app.get(
+    "/api/v1/research/datasets",
+    response_model=ResearchDatasetListResponse,
+    summary="List registered flow datasets",
+    tags=["Research - Datasets"],
+)
+def list_research_datasets(db: Session = Depends(get_db)) -> ResearchDatasetListResponse:
+    """Retrieve all available NetFlow datasets available for research experiments."""
+    datasets = db.query(ResearchDatasetModel).order_by(ResearchDatasetModel.created_at.desc()).all()
+    results = []
+    for d in datasets:
+        features = json.loads(d.features_json) if d.features_json else []
+        results.append(
+            ResearchDatasetResponse(
+                id=d.id,
+                name=d.name,
+                version=d.version,
+                description=d.description,
+                file_size_bytes=d.file_size_bytes,
+                total_flows=d.total_flows,
+                benign_flows=d.benign_flows,
+                attack_flows=d.attack_flows,
+                features=features,
+                schema_type=d.schema_type or "native_netflow",
+                is_adapted=bool(d.is_adapted),
+                adaptation_notes=d.adaptation_notes,
+                is_sample=d.is_sample,
+                created_at=d.created_at,
+            )
+        )
+    return ResearchDatasetListResponse(datasets=results, count=len(results))
+
+
+@app.post(
+    "/api/v1/research/datasets/upload",
+    response_model=ResearchDatasetResponse,
+    summary="Upload a new NetFlow CSV dataset",
+    tags=["Research - Datasets"],
+)
+async def upload_research_dataset(
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    version: str = Form("NF-UNSW-NB15"),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+) -> ResearchDatasetResponse:
+    """Upload and validate a NetFlow dataset file (e.g., NF-UNSW-NB15 or UNSW-NB15 adapter)."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file has no filename.")
+
+    # Save to disk
+    dataset_id = str(uuid.uuid4())
+    ext = Path(file.filename).suffix or ".csv"
+    save_filename = f"{dataset_id}_{file.filename}"
+    save_path = dataset_service.data_dir / save_filename
+
+    try:
+        with open(save_path, "wb") as f_out:
+            shutil.copyfileobj(file.file, f_out)
+    except Exception as exc:
+        logger.error("Failed to save uploaded file: %s", exc)
+        raise HTTPException(status_code=500, detail=f"File save error: {exc}")
+
+    # Inspect and validate schema strictly
+    try:
+        stats = dataset_service.inspect_dataset_file(str(save_path))
+    except (DatasetValidationError, Exception) as exc:
+        if save_path.exists():
+            save_path.unlink()
+        logger.warning("Dataset validation rejected upload: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    display_name = name or Path(file.filename).stem
+    dataset_model = dataset_service.register_dataset(
+        db=db,
+        name=display_name,
+        version=version,
+        file_path=str(save_path),
+        description=description,
+        is_sample=False,
+    )
+
+    return ResearchDatasetResponse(
+        id=dataset_model.id,
+        name=dataset_model.name,
+        version=dataset_model.version,
+        description=dataset_model.description,
+        file_size_bytes=dataset_model.file_size_bytes,
+        total_flows=dataset_model.total_flows,
+        benign_flows=dataset_model.benign_flows,
+        attack_flows=dataset_model.attack_flows,
+        features=json.loads(dataset_model.features_json),
+        schema_type=dataset_model.schema_type,
+        is_adapted=dataset_model.is_adapted,
+        adaptation_notes=dataset_model.adaptation_notes,
+        is_sample=dataset_model.is_sample,
+        created_at=dataset_model.created_at,
+    )
+
+
+@app.post(
+    "/api/v1/research/datasets/sample",
+    response_model=ResearchDatasetResponse,
+    summary="Ensure or load bundled benchmark sample dataset",
+    tags=["Research - Datasets"],
+)
+def load_sample_dataset(db: Session = Depends(get_db)) -> ResearchDatasetResponse:
+    """Ensure the bundled 5,000-flow NF-UNSW-NB15 sample dataset is ready for instant verification."""
+    model = dataset_service.ensure_default_sample_dataset(db)
+    return ResearchDatasetResponse(
+        id=model.id,
+        name=model.name,
+        version=model.version,
+        description=model.description,
+        file_size_bytes=model.file_size_bytes,
+        total_flows=model.total_flows,
+        benign_flows=model.benign_flows,
+        attack_flows=model.attack_flows,
+        features=json.loads(model.features_json),
+        schema_type=model.schema_type,
+        is_adapted=model.is_adapted,
+        adaptation_notes=model.adaptation_notes,
+        is_sample=model.is_sample,
+        created_at=model.created_at,
+    )
+
+
+@app.get(
+    "/api/v1/research/datasets/{dataset_id}",
+    response_model=ResearchDatasetDetailResponse,
+    summary="Get dataset details, sample preview, and schema validation",
+    tags=["Research - Datasets"],
+)
+def get_dataset_details(dataset_id: str, db: Session = Depends(get_db)) -> ResearchDatasetDetailResponse:
+    """Inspect dataset columns, sample rows, and paper feature coverage."""
+    model = db.query(ResearchDatasetModel).filter(ResearchDatasetModel.id == dataset_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    stats = dataset_service.inspect_dataset_file(model.file_path)
+
+    ds_resp = ResearchDatasetResponse(
+        id=model.id,
+        name=model.name,
+        version=model.version,
+        description=model.description,
+        file_size_bytes=model.file_size_bytes,
+        total_flows=model.total_flows,
+        benign_flows=model.benign_flows,
+        attack_flows=model.attack_flows,
+        features=json.loads(model.features_json),
+        schema_type=model.schema_type,
+        is_adapted=model.is_adapted,
+        adaptation_notes=model.adaptation_notes,
+        is_sample=model.is_sample,
+        created_at=model.created_at,
+    )
+
+    return ResearchDatasetDetailResponse(
+        dataset=ds_resp,
+        sample_rows=stats.get("sample_rows", []),
+        validation={
+            "detected_features": stats.get("detected_features", []),
+            "missing_features": stats.get("missing_features", []),
+            "has_label_column": stats.get("has_label_column", False),
+            "is_paper_compliant": stats.get("is_paper_compliant", False),
+            "expected_paper_features": PRIMARY_FEATURES,
+            "schema_type": stats.get("schema_type", "native_netflow"),
+            "is_adapted": stats.get("is_adapted", False),
+            "adaptation_notes": stats.get("adaptation_notes"),
+            "duration_unit": stats.get("duration_unit", "milliseconds"),
+            "validation_status": stats.get("validation_status", "Valid"),
+            "invalid_ip_rows": stats.get("invalid_ip_rows", 0),
+            "malformed_rows": stats.get("malformed_rows", 0),
+        },
+    )
+
+
+@app.delete(
+    "/api/v1/research/datasets/{dataset_id}",
+    summary="Delete a research dataset",
+    tags=["Research - Datasets"],
+)
+def delete_research_dataset(dataset_id: str, db: Session = Depends(get_db)):
+    """Delete a dataset and remove its physical file from disk."""
+    model = db.query(ResearchDatasetModel).filter(ResearchDatasetModel.id == dataset_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # If file exists and not sample, remove file
+    if not model.is_sample:
+        p = Path(model.file_path)
+        if p.exists():
+            p.unlink()
+
+    db.delete(model)
+    db.commit()
+    return {"status": "ok", "message": f"Dataset '{model.name}' removed successfully."}
+
+
+@app.get(
+    "/api/v1/research/experiments",
+    response_model=ResearchExperimentListResponse,
+    summary="List all executed research experiments",
+    tags=["Research - Experiments"],
+)
+def list_research_experiments(db: Session = Depends(get_db)) -> ResearchExperimentListResponse:
+    """Retrieve history of all completed and evaluated research experiment runs."""
+    records = db.query(ResearchExperimentModel).order_by(ResearchExperimentModel.created_at.desc()).all()
+    results = []
+    for r in records:
+        cm_dict = json.loads(r.confusion_matrix_json) if r.confusion_matrix_json else {}
+        cm_resp = ConfusionMatrixResponse(
+            tn=cm_dict.get("tn", 0),
+            fp=cm_dict.get("fp", 0),
+            fn=cm_dict.get("fn", 0),
+            tp=cm_dict.get("tp", 0),
+        )
+        params = json.loads(r.parameters_json) if r.parameters_json else {}
+        runs_sum = json.loads(r.runs_summary_json) if r.runs_summary_json else None
+        results.append(
+            ResearchExperimentResponse(
+                id=r.id,
+                dataset_id=r.dataset_id,
+                dataset_name=r.dataset_name,
+                model_type=r.model_type,
+                is_paper_preset=r.is_paper_preset,
+                preset_name=r.preset_name,
+                parameters=params,
+                random_seed=r.random_seed,
+                num_runs=r.num_runs,
+                status=r.status,
+                scaler_init_count=r.scaler_init_count,
+                warmup_count=r.warmup_count,
+                eval_count=r.eval_count,
+                total_evaluation_time_sec=r.total_evaluation_time_sec,
+                warmup_time_sec=r.warmup_time_sec,
+                avg_latency_per_flow_ms=r.avg_latency_per_flow_ms,
+                accuracy=r.accuracy,
+                precision=r.precision,
+                recall=r.recall,
+                f1_score=r.f1_score,
+                false_positive_rate=r.false_positive_rate,
+                true_positive_rate=r.true_positive_rate,
+                confusion_matrix=cm_resp,
+                runs_summary=runs_sum,
+                error_message=r.error_message,
+                created_at=r.created_at,
+                completed_at=r.completed_at,
+            )
+        )
+    return ResearchExperimentListResponse(experiments=results, count=len(results))
+
+
+@app.post(
+    "/api/v1/research/experiments/run",
+    response_model=ResearchExperimentProgressResponse,
+    summary="Start a reproducible research evaluation run",
+    tags=["Research - Experiments"],
+)
+def run_research_experiment(
+    req: ResearchExperimentRunRequest,
+    db: Session = Depends(get_db),
+) -> ResearchExperimentProgressResponse:
+    """Launch an asynchronous background experiment evaluating River Online OCSVM or Isolation Forest."""
+    dataset = db.query(ResearchDatasetModel).filter(ResearchDatasetModel.id == req.dataset_id).first()
+    if not dataset:
+        # Fallback to default sample
+        dataset = dataset_service.ensure_default_sample_dataset(db)
+
+    params_dict = req.parameters.model_dump() if req.parameters else {}
+
+    try:
+        exp_id = experiment_runner.start_experiment(
+            dataset_id=dataset.id,
+            model_type=req.model_type,
+            preset_name=req.preset_name or dataset.version,
+            is_paper_preset=req.is_paper_preset,
+            parameters=params_dict,
+            random_seed=req.random_seed,
+            num_runs=req.num_runs,
+        )
+    except RuntimeError as err:
+        raise HTTPException(status_code=409, detail=str(err))
+
+    snapshot = experiment_runner.get_progress_snapshot()
+    return ResearchExperimentProgressResponse(**snapshot)
+
+
+@app.get(
+    "/api/v1/research/experiments/active",
+    response_model=ResearchExperimentProgressResponse,
+    summary="Get live experiment execution progress and status",
+    tags=["Research - Experiments"],
+)
+def get_active_experiment_status() -> ResearchExperimentProgressResponse:
+    """Check progress of active or most recently executed experiment."""
+    snapshot = experiment_runner.get_progress_snapshot()
+    return ResearchExperimentProgressResponse(**snapshot)
+
+
+@app.post(
+    "/api/v1/research/experiments/cancel",
+    summary="Cancel the currently running experiment",
+    tags=["Research - Experiments"],
+)
+def cancel_active_experiment():
+    """Request immediate graceful cancellation of running background experiment."""
+    cancelled = experiment_runner.cancel_active_run()
+    if not cancelled:
+        return {"status": "ignored", "message": "No active experiment to cancel."}
+    return {"status": "cancelled", "message": "Experiment cancellation requested."}
+
+
+@app.get(
+    "/api/v1/research/experiments/{experiment_id}",
+    response_model=ResearchExperimentResponse,
+    summary="Get single experiment result details",
+    tags=["Research - Experiments"],
+)
+def get_experiment_result(experiment_id: str, db: Session = Depends(get_db)) -> ResearchExperimentResponse:
+    """Retrieve full metrics, confusion matrix, and configuration for an experiment run."""
+    r = db.query(ResearchExperimentModel).filter(ResearchExperimentModel.id == experiment_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Experiment result not found")
+
+    cm_dict = json.loads(r.confusion_matrix_json) if r.confusion_matrix_json else {}
+    cm_resp = ConfusionMatrixResponse(
+        tn=cm_dict.get("tn", 0),
+        fp=cm_dict.get("fp", 0),
+        fn=cm_dict.get("fn", 0),
+        tp=cm_dict.get("tp", 0),
+    )
+    params = json.loads(r.parameters_json) if r.parameters_json else {}
+    runs_sum = json.loads(r.runs_summary_json) if r.runs_summary_json else None
+
+    return ResearchExperimentResponse(
+        id=r.id,
+        dataset_id=r.dataset_id,
+        dataset_name=r.dataset_name,
+        model_type=r.model_type,
+        is_paper_preset=r.is_paper_preset,
+        preset_name=r.preset_name,
+        parameters=params,
+        random_seed=r.random_seed,
+        num_runs=r.num_runs,
+        status=r.status,
+        scaler_init_count=r.scaler_init_count,
+        warmup_count=r.warmup_count,
+        eval_count=r.eval_count,
+        total_evaluation_time_sec=r.total_evaluation_time_sec,
+        warmup_time_sec=r.warmup_time_sec,
+        avg_latency_per_flow_ms=r.avg_latency_per_flow_ms,
+        accuracy=r.accuracy,
+        precision=r.precision,
+        recall=r.recall,
+        f1_score=r.f1_score,
+        false_positive_rate=r.false_positive_rate,
+        true_positive_rate=r.true_positive_rate,
+        confusion_matrix=cm_resp,
+        runs_summary=runs_sum,
+        error_message=r.error_message,
+        created_at=r.created_at,
+        completed_at=r.completed_at,
+    )
+
+
+@app.delete(
+    "/api/v1/research/experiments/{experiment_id}",
+    summary="Delete an experiment run record",
+    tags=["Research - Experiments"],
+)
+def delete_experiment_record(experiment_id: str, db: Session = Depends(get_db)):
+    """Delete an experiment record from database history."""
+    r = db.query(ResearchExperimentModel).filter(ResearchExperimentModel.id == experiment_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Experiment record not found")
+    db.delete(r)
+    db.commit()
+    return {"status": "ok", "message": f"Experiment '{experiment_id}' deleted."}
+
+
+@app.get(
+    "/api/v1/research/reference",
+    response_model=List[PaperReferenceMetricResponse],
+    summary="Get published benchmark results from Miguel-Diez et al. (arXiv:2509.01375)",
+    tags=["Research - Documentation"],
+)
+def get_paper_reference_benchmarks() -> List[PaperReferenceMetricResponse]:
+    """Retrieve theoretical reference benchmarks published in the selected research paper."""
+    return [PaperReferenceMetricResponse(**ref) for ref in PUBLISHED_PAPER_RESULTS]
+
+
+@app.get(
+    "/api/v1/research/compare",
+    response_model=ComparisonSummaryResponse,
+    summary="Compare proposed online model, baseline, and paper benchmarks",
+    tags=["Research - Evaluation"],
+)
+def get_comparison_summary(db: Session = Depends(get_db)) -> ComparisonSummaryResponse:
+    """Retrieve side-by-side comparison between latest River Online OCSVM and Baseline Isolation Forest."""
+    proposed_rec = (
+        db.query(ResearchExperimentModel)
+        .filter(ResearchExperimentModel.model_type == "river_ocsvm", ResearchExperimentModel.status == "completed")
+        .order_by(ResearchExperimentModel.created_at.desc())
+        .first()
+    )
+    baseline_rec = (
+        db.query(ResearchExperimentModel)
+        .filter(ResearchExperimentModel.model_type == "isolation_forest", ResearchExperimentModel.status == "completed")
+        .order_by(ResearchExperimentModel.created_at.desc())
+        .first()
+    )
+
+    def to_schema(r: Optional[ResearchExperimentModel]) -> Optional[ResearchExperimentResponse]:
+        if not r:
+            return None
+        cm = json.loads(r.confusion_matrix_json) if r.confusion_matrix_json else {}
+        return ResearchExperimentResponse(
+            id=r.id,
+            dataset_id=r.dataset_id,
+            dataset_name=r.dataset_name,
+            model_type=r.model_type,
+            is_paper_preset=r.is_paper_preset,
+            preset_name=r.preset_name,
+            parameters=json.loads(r.parameters_json) if r.parameters_json else {},
+            random_seed=r.random_seed,
+            num_runs=r.num_runs,
+            status=r.status,
+            scaler_init_count=r.scaler_init_count,
+            warmup_count=r.warmup_count,
+            eval_count=r.eval_count,
+            total_evaluation_time_sec=r.total_evaluation_time_sec,
+            warmup_time_sec=r.warmup_time_sec,
+            avg_latency_per_flow_ms=r.avg_latency_per_flow_ms,
+            accuracy=r.accuracy,
+            precision=r.precision,
+            recall=r.recall,
+            f1_score=r.f1_score,
+            false_positive_rate=r.false_positive_rate,
+            true_positive_rate=r.true_positive_rate,
+            confusion_matrix=ConfusionMatrixResponse(**cm),
+            runs_summary=json.loads(r.runs_summary_json) if r.runs_summary_json else None,
+            error_message=r.error_message,
+            created_at=r.created_at,
+            completed_at=r.completed_at,
+        )
+
+    ref_list = [PaperReferenceMetricResponse(**ref) for ref in PUBLISHED_PAPER_RESULTS]
+
+    return ComparisonSummaryResponse(
+        proposed_model=to_schema(proposed_rec),
+        baseline_model=to_schema(baseline_rec),
+        paper_reference=ref_list,
+    )

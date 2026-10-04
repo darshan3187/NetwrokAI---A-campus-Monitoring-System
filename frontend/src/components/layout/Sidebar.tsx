@@ -2,32 +2,22 @@ import React from 'react';
 import {
   Activity,
   BarChart3,
-  Network,
   Radio,
-  Settings,
-  ShieldAlert,
   FlaskConical,
   PanelLeftClose,
   PanelLeftOpen,
-  Server,
-  Building2,
-  GitFork,
+  Database,
+  BookOpen,
   X,
-  Bell,
 } from 'lucide-react';
 
 export type NavTab =
   | 'overview'
-  | 'campus'
-  | 'topology'
-  | 'alerts'
+  | 'experiment'
+  | 'dataset'
+  | 'results'
   | 'live'
-  | 'analytics'
-  | 'interfaces'
-  | 'devices'
-  | 'anomaly'
-  | 'simulation'
-  | 'settings';
+  | 'research';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -48,47 +38,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems = [
     { id: 'overview' as NavTab, label: 'Overview', icon: Activity },
-    {
-      id: 'campus' as NavTab,
-      label: 'Campus NOC',
-      icon: Building2,
-      badge: 'NOC',
-    },
-    {
-      id: 'topology' as NavTab,
-      label: 'Topology',
-      icon: GitFork,
-      badge: 'LLDP',
-    },
-    {
-      id: 'alerts' as NavTab,
-      label: 'Alerts',
-      icon: Bell,
-      badge: 'Events',
-    },
-    { id: 'live' as NavTab, label: 'Live Stream', icon: Radio },
-    { id: 'analytics' as NavTab, label: 'Analytics', icon: BarChart3 },
-    { id: 'interfaces' as NavTab, label: 'Interfaces', icon: Network },
-    {
-      id: 'devices' as NavTab,
-      label: 'Devices',
-      icon: Server,
-      badge: 'Campus',
-    },
-    {
-      id: 'anomaly' as NavTab,
-      label: 'AI Anomaly',
-      icon: ShieldAlert,
-      badge: 'ML',
-    },
-    {
-      id: 'simulation' as NavTab,
-      label: 'Simulation Lab',
-      icon: FlaskConical,
-      badge: 'Lab',
-    },
-    { id: 'settings' as NavTab, label: 'Settings', icon: Settings },
+    { id: 'dataset' as NavTab, label: 'Dataset', icon: Database },
+    { id: 'experiment' as NavTab, label: 'Experiment', icon: FlaskConical },
+    { id: 'results' as NavTab, label: 'Results', icon: BarChart3 },
+    { id: 'live' as NavTab, label: 'Live Monitor', icon: Radio },
+    { id: 'research' as NavTab, label: 'Research / About', icon: BookOpen },
   ];
+
 
   const handleSelect = (id: NavTab) => {
     onSelectTab(id);
@@ -116,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Brand Header */}
         <div className="h-14 flex items-center justify-between px-3.5 border-b border-border-subtle">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            {/* Iconic Triangle Mark */}
+            {/* Clean Mark */}
             <div className="w-7 h-7 rounded-[6px] bg-[#171717] dark:bg-[#ededed] text-white dark:text-black flex items-center justify-center shrink-0">
               <svg viewBox="0 0 76 65" className="w-3.5 h-3 fill-current" aria-hidden="true">
                 <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
@@ -128,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Network<span className="text-[#0070f3]">AI</span>
                 </span>
                 <span className="text-[10px] text-text-muted font-mono uppercase tracking-[0.05em]">
-                  OBS
+                  Research
                 </span>
               </div>
             )}
@@ -185,21 +141,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {(!collapsed || mobileOpen) && (
                   <div className="flex-1 flex items-center justify-between overflow-hidden min-w-0">
                     <span className="truncate">{item.label}</span>
-                    {item.badge && (
-                      <span
-                        className={`text-[10px] font-mono px-1.5 py-0.2 rounded-[4px] font-medium uppercase tracking-[0.05em] border ${
-                          item.id === 'anomaly'
-                            ? 'bg-[#0070f3]/10 text-[#0070f3] border-[#0070f3]/25'
-                            : item.id === 'campus'
-                            ? 'bg-[#0070f3]/10 text-[#0070f3] border-[#0070f3]/25'
-                            : item.id === 'devices'
-                            ? 'bg-[#50e3c2]/10 text-[#50e3c2] border-[#50e3c2]/25'
-                            : 'bg-elevated-surface text-text-secondary border-border-subtle'
-                        }`}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
                   </div>
                 )}
               </button>
@@ -207,22 +148,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </nav>
 
-        {/* Minimal Footer */}
+        {/* Minimal Academic Project Footer */}
         <div className="p-3 border-t border-border-subtle text-xs text-text-muted flex items-center justify-between">
           {!collapsed || mobileOpen ? (
             <>
-              <span className="text-[11px] font-mono text-text-faint">Engine v1.0</span>
+              <span className="text-[11px] text-text-muted font-medium">B.Tech Project</span>
               <div className="flex items-center gap-1.5 text-[11px] text-text-secondary">
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#0070f3]" aria-hidden="true" />
-                <span className="font-mono">ONLINE</span>
+                <span className="font-mono text-[11px]">Computer Engineering</span>
               </div>
             </>
           ) : (
             <div className="w-full flex justify-center">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#0070f3]" title="Telemetry Engine Online" aria-hidden="true" />
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#0070f3]" title="NetworkAI Active" aria-hidden="true" />
             </div>
           )}
         </div>
+
       </aside>
     </>
   );

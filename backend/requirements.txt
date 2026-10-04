@@ -9,3 +9,5 @@ httpx>=0.27.0
 websockets>=12.0
 scikit-learn>=1.4.0
 numpy>=1.26.0
+river>=0.26.0
+python-multipart>=0.0.9

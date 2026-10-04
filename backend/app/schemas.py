@@ -1,7 +1,7 @@
 import ipaddress
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -884,6 +884,165 @@ class TopologyAlertSummaryResponse(BaseModel):
     mock_alerts_count: int = 0
     actual_alerts_count: int = 0
     timestamp: datetime
+
+
+# ============================================================================
+# Research Paper & Experiment Schemas (Miguel-Diez et al. arXiv:2509.01375)
+# ============================================================================
+
+
+class ResearchDatasetResponse(BaseModel):
+    """Metadata response for a flow dataset."""
+
+    id: str
+    name: str
+    version: str
+    description: Optional[str] = None
+    file_size_bytes: int
+    total_flows: int
+    benign_flows: int
+    attack_flows: int
+    features: List[str] = Field(default_factory=list)
+    schema_type: str = "native_netflow"
+    is_adapted: bool = False
+    adaptation_notes: Optional[str] = None
+    is_sample: bool
+    created_at: datetime
+
+
+class ResearchDatasetListResponse(BaseModel):
+    """List of all available registered flow datasets."""
+
+    datasets: List[ResearchDatasetResponse] = Field(default_factory=list)
+    count: int
+
+
+class ResearchDatasetDetailResponse(BaseModel):
+    """Detailed view of a dataset including sample preview and schema validation."""
+
+    dataset: ResearchDatasetResponse
+    sample_rows: List[Dict[str, Any]] = Field(default_factory=list)
+    validation: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchExperimentParams(BaseModel):
+    """Configurable hyperparameters for research model evaluation."""
+
+    nu: float = 0.05
+    q: float = 0.99
+    learning_rate: float = 0.1
+    power: float = 0.5
+    scaler_init_count: int = 1000
+    warmup_count: int = 100000
+    eval_count: Optional[int] = None
+    contamination: float = 0.05
+    n_estimators: int = 100
+
+
+class ResearchExperimentRunRequest(BaseModel):
+    """Request payload to initiate a reproducible experiment run."""
+
+    dataset_id: str
+    model_type: str = "river_ocsvm"  # river_ocsvm, isolation_forest, both
+    preset_name: Optional[str] = "NF-UNSW-NB15"
+    is_paper_preset: bool = True
+    parameters: Optional[ResearchExperimentParams] = None
+    random_seed: int = 42
+    num_runs: int = 1  # 1 to 12
+
+
+class ConfusionMatrixResponse(BaseModel):
+    """Standard binary classification confusion matrix."""
+
+    tn: int = 0
+    fp: int = 0
+    fn: int = 0
+    tp: int = 0
+
+
+class ResearchExperimentResponse(BaseModel):
+    """Full results record for a completed or historical experiment run."""
+
+    id: str
+    dataset_id: str
+    dataset_name: str
+    model_type: str
+    is_paper_preset: bool
+    preset_name: str
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    random_seed: int
+    num_runs: int
+    status: str
+    scaler_init_count: int
+    warmup_count: int
+    eval_count: int
+    total_evaluation_time_sec: float
+    warmup_time_sec: float
+    avg_latency_per_flow_ms: float
+    accuracy: float
+    precision: float
+    recall: float
+    f1_score: float
+    false_positive_rate: float
+    true_positive_rate: float
+    confusion_matrix: ConfusionMatrixResponse
+    runs_summary: Optional[Union[Dict[str, Any], List[Any]]] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class ResearchExperimentListResponse(BaseModel):
+    """List of executed research experiments."""
+
+    experiments: List[ResearchExperimentResponse] = Field(default_factory=list)
+    count: int
+
+
+class ResearchExperimentProgressResponse(BaseModel):
+    """Live progress and status of active or last-run experiment."""
+
+    status: str  # idle, preparing, scaler_init, warmup, evaluating, completed, cancelled, failed
+    phase: str
+    current_step: str
+    warmup_progress: float = 0.0
+    eval_progress: float = 0.0
+    flows_processed: int = 0
+    total_flows: int = 0
+    flows_per_second: float = 0.0
+    avg_latency_ms: float = 0.0
+    current_metrics: Optional[Dict[str, float]] = None
+    experiment_id: Optional[str] = None
+
+
+class PaperReferenceMetricResponse(BaseModel):
+    """Published benchmark reference results reported by Miguel-Diez et al. (arXiv:2509.01375)."""
+
+    dataset_name: str
+    model: str
+    scaler: str
+    nu: float
+    q: float
+    learning_rate: float
+    accuracy: float
+    fpr: float
+    recall: float
+    f1_score: float
+    latency_ms_per_flow: float
+    citation: str
+    authors: str
+    paper_title: str
+    arxiv_id: str
+    provenance_note: str
+
+
+class ComparisonSummaryResponse(BaseModel):
+    """Side-by-side comparison between online OCSVM, baseline Isolation Forest, and paper benchmark."""
+
+    proposed_model: Optional[ResearchExperimentResponse] = None
+    baseline_model: Optional[ResearchExperimentResponse] = None
+    paper_reference: List[PaperReferenceMetricResponse] = Field(default_factory=list)
+
 
 
 

@@ -318,4 +318,80 @@ class TopologyAlertModel(Base):
         )
 
 
+class ResearchDatasetModel(Base):
+    """Stores metadata for flow datasets (e.g., NF-UNSW-NB15, NF-UNSW-NB15-v2, and custom uploads)."""
+
+    __tablename__ = "research_datasets"
+
+    id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    version = Column(String(50), nullable=False, default="NF-UNSW-NB15")
+    description = Column(String(255), nullable=True)
+    file_path = Column(String(500), nullable=False)
+    file_size_bytes = Column(Integer, nullable=False, default=0)
+    total_flows = Column(Integer, nullable=False, default=0)
+    benign_flows = Column(Integer, nullable=False, default=0)
+    attack_flows = Column(Integer, nullable=False, default=0)
+    features_json = Column(Text, nullable=False, default="[]")
+    schema_type = Column(String(50), nullable=False, default="native_netflow")
+    is_adapted = Column(Boolean, nullable=False, default=False)
+    adaptation_notes = Column(Text, nullable=True)
+    is_sample = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<ResearchDataset(id='{self.id}', name='{self.name}', total={self.total_flows})>"
+
+
+class ResearchExperimentModel(Base):
+    """Persists reproducible research evaluation experiment runs and benchmark metrics."""
+
+    __tablename__ = "research_experiments"
+
+    id = Column(String(64), primary_key=True, index=True)
+    dataset_id = Column(String(64), nullable=False, index=True)
+    dataset_name = Column(String(100), nullable=False)
+    model_type = Column(String(50), nullable=False, index=True)  # river_ocsvm, isolation_forest, both
+    is_paper_preset = Column(Boolean, nullable=False, default=True)
+    preset_name = Column(String(50), nullable=False, default="NF-UNSW-NB15")
+    parameters_json = Column(Text, nullable=False, default="{}")
+    random_seed = Column(Integer, nullable=False, default=42)
+    num_runs = Column(Integer, nullable=False, default=1)
+    status = Column(String(50), nullable=False, default="completed", index=True)  # completed, running, failed, cancelled
+    scaler_init_count = Column(Integer, nullable=False, default=1000)
+    warmup_count = Column(Integer, nullable=False, default=100000)
+    eval_count = Column(Integer, nullable=False, default=0)
+    total_evaluation_time_sec = Column(Float, nullable=False, default=0.0)
+    warmup_time_sec = Column(Float, nullable=False, default=0.0)
+    avg_latency_per_flow_ms = Column(Float, nullable=False, default=0.0)
+    accuracy = Column(Float, nullable=False, default=0.0)
+    precision = Column(Float, nullable=False, default=0.0)
+    recall = Column(Float, nullable=False, default=0.0)
+    f1_score = Column(Float, nullable=False, default=0.0)
+    false_positive_rate = Column(Float, nullable=False, default=0.0)
+    true_positive_rate = Column(Float, nullable=False, default=0.0)
+    confusion_matrix_json = Column(Text, nullable=False, default="{}")
+    runs_summary_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ResearchExperiment(id='{self.id}', model='{self.model_type}', "
+            f"acc={self.accuracy:.4f}, f1={self.f1_score:.4f}, status='{self.status}')>"
+        )
+
+
+
 

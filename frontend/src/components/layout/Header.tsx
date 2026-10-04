@@ -15,6 +15,7 @@ import type { InterfaceDetail } from '../../types/metrics';
 
 interface HeaderProps {
   title: string;
+  subtitle?: string;
   activeInterface: string | null;
   interfaces: InterfaceDetail[];
   wsStatus: ConnectionStatus;
@@ -26,6 +27,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   title,
+  subtitle,
   activeInterface,
   interfaces,
   wsStatus,
@@ -93,8 +95,8 @@ export const Header: React.FC<HeaderProps> = ({
             {title}
           </span>
           <span className="hidden sm:inline text-text-muted text-xs select-none">/</span>
-          <span className="hidden sm:inline text-xs text-text-muted font-mono uppercase tracking-[0.05em]">
-            Host Telemetry
+          <span className="hidden sm:inline text-xs text-text-muted font-medium">
+            {subtitle || 'Network Anomaly Detection'}
           </span>
         </div>
       </div>
@@ -213,7 +215,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Live Monitoring Badge */}
         {isMonitoring ? (
-          <Badge variant="success" pulse size="sm">
+          <Badge variant="success" size="sm">
             LIVE
           </Badge>
         ) : (

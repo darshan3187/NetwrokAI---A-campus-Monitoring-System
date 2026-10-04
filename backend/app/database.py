@@ -60,6 +60,19 @@ def init_db(target_engine=None) -> None:
             for col_name, col_def in new_columns:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE devices ADD COLUMN {col_name} {col_def}"))
+
+            # Lightweight idempotent schema upgrade for research_datasets table
+            res_datasets = conn.execute(text("PRAGMA table_info(research_datasets)")).fetchall()
+            existing_dataset_cols = {row[1] for row in res_datasets}
+            dataset_cols = [
+                ("schema_type", "VARCHAR(50) DEFAULT 'native_netflow'"),
+                ("is_adapted", "BOOLEAN DEFAULT 0"),
+                ("adaptation_notes", "TEXT"),
+            ]
+            for col_name, col_def in dataset_cols:
+                if col_name not in existing_dataset_cols:
+                    conn.execute(text(f"ALTER TABLE research_datasets ADD COLUMN {col_name} {col_def}"))
+
             conn.commit()
         except Exception:
             pass
